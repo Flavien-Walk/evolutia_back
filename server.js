@@ -2,6 +2,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+const bcrypt = require("bcrypt");
+require("dotenv").config();
 
 const app = express();
 
@@ -11,10 +13,7 @@ app.use(cors());
 
 // Connexion à MongoDB
 mongoose
-  .connect(
-    "mongodb+srv://flavienhypnose:nddfXBVv1uzn5FNT@cluster0.aug1e.mongodb.net/Cluster0",
-    { useNewUrlParser: true, useUnifiedTopology: true }
-  )
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connecté"))
   .catch((err) => console.error("Erreur de connexion à MongoDB :", err));
 
@@ -42,8 +41,16 @@ app.post("/register", async (req, res) => {
         .json({ error: "Un utilisateur avec cet email existe déjà." });
     }
 
+    // Hacher le mot de passe
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     // Créer un nouvel utilisateur
-    const newUser = new User({ email, username, contactNumber, password });
+    const newUser = new User({
+      email,
+      username,
+      contactNumber,
+      password: hashedPassword,
+    });
     await newUser.save();
     res.status(201).json({ message: "Utilisateur créé avec succès" });
   } catch (error) {
@@ -65,7 +72,8 @@ app.post("/login", async (req, res) => {
     }
 
     // Vérification du mot de passe
-    if (user.password !== password) {
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       return res.status(400).json({ error: "Mot de passe incorrect." });
     }
 
@@ -83,5 +91,5 @@ app.get("/", (req, res) => {
 });
 
 // Lancer le serveur
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Serveur démarré sur le port ${PORT}`));
