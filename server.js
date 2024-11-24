@@ -25,7 +25,47 @@ app.use(cors());
 // Connexion à MongoDB
 mongoose
   .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("MongoDB connecté"))
+  .then(async () => {
+    console.log("MongoDB connecté");
+
+    // Liste des utilisateurs par défaut à ajouter ou mettre à jour
+    const defaultUsers = [
+      { email: "flavien@test.com", username: "Flavien", role: "Super-Admin" },
+      { email: "admin@example.com", username: "AdminUser", role: "Admin" },
+      { email: "moderator@example.com", username: "ModeratorUser", role: "Modérateur" },
+      { email: "golduser@example.com", username: "GoldUser", role: "Gold" },
+    ];
+
+    for (const userData of defaultUsers) {
+      const { email, username, role } = userData;
+
+      // Recherche de l'utilisateur existant
+      const existingUser = await User.findOne({ email });
+      if (!existingUser) {
+        // Crée l'utilisateur s'il n'existe pas
+        const hashedPassword = await bcrypt.hash("defaultpassword", 10); // Mot de passe par défaut
+        const newUser = new User({
+          email,
+          username,
+          password: hashedPassword,
+          role,
+        });
+        await newUser.save();
+        console.log(`${role} créé : ${email}`);
+      } else {
+        // Met à jour le rôle et le nom d'utilisateur si l'utilisateur existe déjà
+        if (existingUser.role !== role) {
+          existingUser.username = username;
+          existingUser.role = role;
+          existingUser.roleColor = undefined; // Réinitialise pour recalculer automatiquement
+          await existingUser.save();
+          console.log(`Utilisateur mis à jour avec le rôle ${role} : ${email}`);
+        } else {
+          console.log(`Aucun changement nécessaire pour l'utilisateur : ${email}`);
+        }
+      }
+    }
+  })
   .catch((err) => console.error("Erreur de connexion à MongoDB :", err));
 
 // Route pour l'inscription
@@ -52,9 +92,11 @@ app.post("/register", async (req, res) => {
     await newUser.save();
 
     // Génération du token JWT
-    const token = jwt.sign({ userId: newUser._id, username: newUser.username }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(
+      { userId: newUser._id, username: newUser.username, role: newUser.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
 
     res.status(201).json({ message: "Utilisateur créé avec succès", token });
   } catch (error) {
@@ -81,54 +123,19 @@ app.post("/login", async (req, res) => {
     }
 
     // Génération du token JWT
-    const token = jwt.sign({ userId: user._id, username: user.username }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(
+      { userId: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
 
     res.status(200).json({
       message: "Connexion réussie",
       token,
-      user: { username: user.username, email: user.email },
+      user: { username: user.username, email: user.email, role: user.role, roleColor: user.roleColor },
     });
   } catch (error) {
     console.error("Erreur lors de la connexion :", error);
-    res.status(500).json({ error: "Une erreur est survenue, veuillez réessayer." });
-  }
-});
-
-// Route pour la connexion via Google
-app.post("/google-login", async (req, res) => {
-  try {
-    const { token } = req.body;
-
-    // Exemple de vérification du token Google (à adapter avec une bibliothèque Google API si nécessaire)
-    const decodedGoogleToken = jwt.decode(token); // Cette étape dépend de votre implémentation
-    const email = decodedGoogleToken.email;
-
-    let user = await User.findOne({ email });
-
-    // Si l'utilisateur n'existe pas, créez un nouvel utilisateur
-    if (!user) {
-      user = new User({
-        email,
-        username: email.split("@")[0], // Crée un nom d'utilisateur basé sur l'email
-        password: "", // Pas de mot de passe car c'est une connexion via Google
-      });
-      await user.save();
-    }
-
-    // Génération du token JWT
-    const authToken = jwt.sign({ userId: user._id, username: user.username }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    res.status(200).json({
-      message: "Connexion réussie via Google",
-      token: authToken,
-      user: { username: user.username, email: user.email },
-    });
-  } catch (error) {
-    console.error("Erreur lors de la connexion via Google :", error);
     res.status(500).json({ error: "Une erreur est survenue, veuillez réessayer." });
   }
 });
@@ -149,7 +156,7 @@ app.get("/user-info", async (req, res) => {
       return res.status(404).json({ error: "Utilisateur non trouvé." });
     }
 
-    res.status(200).json({ username: user.username });
+    res.status(200).json({ username: user.username, role: user.role, roleColor: user.roleColor });
   } catch (error) {
     console.error("Erreur lors de la récupération des infos utilisateur :", error);
     res.status(500).json({ error: "Une erreur est survenue." });
