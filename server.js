@@ -4,7 +4,7 @@ const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
@@ -31,6 +31,7 @@ mongoose
     // Liste des utilisateurs par défaut à ajouter ou mettre à jour
     const defaultUsers = [
       { email: "flavien@test.com", username: "Flavien", role: "Super-Admin" },
+      { email: "Yrieix@test.com", username: "Yrieix", role: "Super-Admin" },
       { email: "admin@example.com", username: "AdminUser", role: "Admin" },
       { email: "moderator@example.com", username: "ModeratorUser", role: "Modérateur" },
       { email: "golduser@example.com", username: "GoldUser", role: "Gold" },
@@ -188,5 +189,8 @@ io.on("connection", (socket) => {
 });
 
 // Lancer le serveur
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Serveur démarré sur le port ${PORT}`));
+const PORT = process.env.PORT || 3636;
+
+//Change ton IP ici Flavie
+const IP_ADDRESS = "10.76.203.251"
+server.listen(PORT, IP_ADDRESS, () => console.log(`Serveur démarré sur http://${IP_ADDRESS}:${PORT}`));
