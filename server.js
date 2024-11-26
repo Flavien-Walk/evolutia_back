@@ -12,10 +12,10 @@ require("dotenv").config();
 const User = require("./models/user");
 
 const app = express();
-const server = http.createServer(app); // Serveur HTTP
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Permet l'accès depuis toutes les origines
+    origin: "*",
   },
 });
 
@@ -28,7 +28,7 @@ app.use(cors());
 
 // Connexion à MongoDB
 mongoose
-  .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connecté"))
   .catch((err) => console.error("Erreur de connexion à MongoDB :", err));
 
@@ -37,31 +37,18 @@ app.post("/register", async (req, res) => {
   try {
     const { email, username, password } = req.body;
 
-    // Vérifier si l'utilisateur existe déjà
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: "Un utilisateur avec cet email existe déjà." });
     }
 
-    // Hachage du mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Créer un nouvel utilisateur
-    const newUser = new User({
-      email,
-      username,
-      password: hashedPassword,
-    });
+    const newUser = new User({ email, username, password: hashedPassword });
     await newUser.save();
 
-    // Générer un token JWT
-    const token = jwt.sign(
-      { userId: newUser._id, username: newUser.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    const token = jwt.sign({ userId: newUser._id, username: newUser.username }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
-    // Réponse avec les informations utilisateur
     res.status(201).json({
       message: "Utilisateur créé avec succès",
       token,
@@ -83,24 +70,17 @@ app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Vérifier si l'utilisateur existe
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ error: "Utilisateur non trouvé." });
     }
 
-    // Vérifier le mot de passe
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ error: "Mot de passe incorrect." });
     }
 
-    // Générer un token JWT
-    const token = jwt.sign(
-      { userId: user._id, username: user.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    const token = jwt.sign({ userId: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
     res.status(200).json({
       message: "Connexion réussie",
@@ -127,7 +107,6 @@ app.post("/google-login", async (req, res) => {
       return res.status(400).json({ error: "Token Google manquant." });
     }
 
-    // Vérifier et décoder le token Google
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -139,26 +118,15 @@ app.post("/google-login", async (req, res) => {
       return res.status(400).json({ error: "Email Google manquant." });
     }
 
-    // Vérifier si l'utilisateur existe déjà
     let user = await User.findOne({ email });
     if (!user) {
-      // Créer un nouvel utilisateur si nécessaire
       const hashedPassword = await bcrypt.hash(sub, 10);
-      user = new User({
-        email,
-        username: name || "Utilisateur Google",
-        password: hashedPassword,
-      });
+      user = new User({ email, username: name || "Utilisateur Google", password: hashedPassword });
       await user.save();
       console.log(`Nouvel utilisateur Google créé : ${email}`);
     }
 
-    // Générer un token JWT
-    const jwtToken = jwt.sign(
-      { userId: user._id, username: user.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    const jwtToken = jwt.sign({ userId: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: "1h" });
 
     res.status(200).json({
       message: "Connexion via Google réussie",
