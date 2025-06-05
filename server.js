@@ -23,20 +23,31 @@ const io = new Server(server, {
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Middleware
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "10mb" })); // important pour recevoir les images base64
 app.use(cors());
 
-// Logger les requêtes HTTP
-app.use((req, res, next) => {
+// Logger global pour toutes les requêtes entrantes
+app.use(async (req, res, next) => {
   const now = new Date().toLocaleString();
   console.log(`[${now}] Requête reçue : ${req.method} ${req.originalUrl}`);
+
+  const tokenHeader = req.headers.authorization;
+  if (tokenHeader && tokenHeader.startsWith("Bearer ")) {
+    try {
+      const token = tokenHeader.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log(`👉 Utilisateur : ${decoded.username} (${decoded.userId})`);
+    } catch (error) {
+      console.log("⚠️ Token invalide ou expiré.");
+    }
+  }
   next();
 });
 
 // Connexion à MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connecté"))
+  .then(() => console.log("✅ MongoDB connecté"))
   .catch((err) => console.error("Erreur de connexion à MongoDB :", err));
 
 // Route pour l'inscription
@@ -44,7 +55,7 @@ app.post("/register", async (req, res) => {
   try {
     const { email, username, password } = req.body;
 
-    console.log(`Tentative d'inscription : ${username} (${email})`);
+    console.log(`🔐 Tentative d'inscription : ${username} (${email})`);
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -52,12 +63,10 @@ app.post("/register", async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const newUser = new User({ email, username, password: hashedPassword });
     await newUser.save();
 
-    const now = new Date().toLocaleString();
-    console.log(`✅ [${now}] Nouvel utilisateur inscrit : ${username} (${email}) - Grade : ${newUser.role} - Offre : ${newUser.selectedPlan || "Aucune"}`);
+    console.log(`✅ Nouvel utilisateur inscrit : ${username} (${email})`);
 
     const token = jwt.sign(
       { userId: newUser._id, username: newUser.username },
@@ -73,6 +82,7 @@ app.post("/register", async (req, res) => {
         email: newUser.email,
         role: newUser.role,
         roleColor: newUser.roleColor,
+        profileImage: newUser.profileImage || "",
       },
     });
   } catch (error) {
@@ -86,7 +96,7 @@ app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log(`Tentative de connexion : ${email}`);
+    console.log(`🔑 Tentative de connexion : ${email}`);
 
     const user = await User.findOne({ email });
     if (!user) {
@@ -98,8 +108,7 @@ app.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Mot de passe incorrect." });
     }
 
-    const now = new Date().toLocaleString();
-    console.log(`✅ [${now}] Connexion réussie : ${user.username} (${email}) - Grade : ${user.role} - Offre : ${user.selectedPlan || "Aucune"}`);
+    console.log(`✅ Connexion réussie : ${user.username} (${email})`);
 
     const token = jwt.sign(
       { userId: user._id, username: user.username },
@@ -115,6 +124,7 @@ app.post("/login", async (req, res) => {
         email: user.email,
         role: user.role || "User",
         roleColor: user.roleColor || "#808080",
+        profileImage: user.profileImage || "",
       },
     });
   } catch (error) {
@@ -127,7 +137,6 @@ app.post("/login", async (req, res) => {
 app.post("/google-login", async (req, res) => {
   try {
     const { token } = req.body;
-
     if (!token) {
       return res.status(400).json({ error: "Token Google manquant." });
     }
@@ -137,21 +146,18 @@ app.post("/google-login", async (req, res) => {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-
     const { email, name, sub } = payload;
-    if (!email) {
-      return res.status(400).json({ error: "Email Google manquant." });
-    }
 
     let user = await User.findOne({ email });
     const now = new Date().toLocaleString();
+
     if (!user) {
       const hashedPassword = await bcrypt.hash(sub, 10);
       user = new User({ email, username: name || "Utilisateur Google", password: hashedPassword });
       await user.save();
-      console.log(`✅ [${now}] Nouvel utilisateur Google créé : ${name} (${email}) - Grade : ${user.role} - Offre : ${user.selectedPlan || "Aucune"}`);
+      console.log(`✅ Nouvel utilisateur Google créé : ${name} (${email})`);
     } else {
-      console.log(`✅ [${now}] Connexion via Google réussie : ${user.username} (${email}) - Grade : ${user.role} - Offre : ${user.selectedPlan || "Aucune"}`);
+      console.log(`✅ Connexion via Google réussie : ${user.username} (${email})`);
     }
 
     const jwtToken = jwt.sign(
@@ -168,6 +174,7 @@ app.post("/google-login", async (req, res) => {
         email: user.email,
         role: user.role || "User",
         roleColor: user.roleColor || "#808080",
+        profileImage: user.profileImage || "",
       },
     });
   } catch (error) {
@@ -181,7 +188,6 @@ app.post("/logout", async (req, res) => {
   try {
     const tokenHeader = req.headers.authorization;
     if (!tokenHeader || !tokenHeader.startsWith("Bearer ")) {
-      console.log("⚠️ Tentative de déconnexion sans token valide.");
       return res.status(401).json({ error: "Token manquant ou invalide." });
     }
 
@@ -190,12 +196,10 @@ app.post("/logout", async (req, res) => {
 
     const user = await User.findById(decoded.userId);
     if (!user) {
-      console.log(`⚠️ Tentative de déconnexion pour un utilisateur non trouvé (ID: ${decoded.userId}).`);
       return res.status(404).json({ error: "Utilisateur non trouvé." });
     }
 
-    const now = new Date().toLocaleString();
-    console.log(`🔌 [${now}] Déconnexion : ${user.username} (${user.email}) - Grade : ${user.role} - Offre : ${user.selectedPlan || "Aucune"}`);
+    console.log(`🔌 Déconnexion : ${user.username} (${user.email})`);
 
     res.status(200).json({ message: "Déconnexion réussie." });
   } catch (error) {
@@ -208,7 +212,6 @@ app.post("/logout", async (req, res) => {
 app.get("/user-info", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Token manquant ou invalide." });
     }
@@ -226,7 +229,8 @@ app.get("/user-info", async (req, res) => {
       email: user.email,
       role: user.role || "User",
       roleColor: user.roleColor || "#808080",
-      selectedPlan: user.selectedPlan || ""
+      selectedPlan: user.selectedPlan || "",
+      profileImage: user.profileImage || "",
     });
   } catch (error) {
     console.error("Erreur lors de la récupération des informations utilisateur :", error);
@@ -234,7 +238,7 @@ app.get("/user-info", async (req, res) => {
   }
 });
 
-// Route pour choisir un pack
+// Route pour choisir un plan
 app.post("/choose-plan", async (req, res) => {
   try {
     const tokenHeader = req.headers.authorization;
@@ -245,48 +249,74 @@ app.post("/choose-plan", async (req, res) => {
     const token = tokenHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const userId = decoded.userId;
-    const username = decoded.username;
-
     const { plan } = req.body;
     if (!plan) {
-      console.log(`⚠️ Tentative de choix de pack sans plan spécifié par ${username || "utilisateur inconnu"}.`);
       return res.status(400).json({ error: "Plan non spécifié." });
     }
 
-    await User.findByIdAndUpdate(userId, { selectedPlan: plan });
-
-    const now = new Date().toLocaleString();
-    console.log(`✅ [${now}] ${username} (ID: ${userId}) a choisi le pack : ${plan}.`);
+    await User.findByIdAndUpdate(decoded.userId, { selectedPlan: plan });
+    console.log(`✅ ${decoded.username} a choisi le plan : ${plan}`);
 
     res.status(200).json({ message: "Plan sélectionné avec succès." });
   } catch (error) {
     console.error("Erreur lors de la sélection du plan :", error);
-    if (error.name === "TokenExpiredError") {
-      return res.status(401).json({ error: "Session expirée. Veuillez vous reconnecter." });
+    res.status(500).json({ error: "Erreur interne du serveur." });
+  }
+});
+
+// Route pour mettre à jour la photo de profil
+app.post("/update-profile-image", async (req, res) => {
+  try {
+    const tokenHeader = req.headers.authorization;
+    if (!tokenHeader || !tokenHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Token manquant ou invalide." });
     }
+
+    const token = tokenHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const { imageUri } = req.body;
+    if (!imageUri) {
+      return res.status(400).json({ error: "Aucune image spécifiée." });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      decoded.userId,
+      { profileImage: imageUri },
+      { new: true }
+    );
+
+    console.log(`✅ Photo de profil mise à jour pour : ${updatedUser.username} (${updatedUser.email})`);
+    console.log(`👉 Nouvelle image (tronquée) : ${updatedUser.profileImage.slice(0, 30)}...`);
+
+    res.status(200).json({
+      message: "Photo de profil mise à jour avec succès.",
+      profileImage: updatedUser.profileImage || "",
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de la photo de profil :", error);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 });
 
 // Gestion des connexions Socket.IO
 io.on("connection", (socket) => {
-  console.log("Utilisateur connecté via Socket.IO :", socket.id);
+  console.log("⚡ Utilisateur connecté via Socket.IO :", socket.id);
 
   let username = "Anonymous";
 
   socket.on("setUsername", (data) => {
     username = data.username;
-    console.log(`Nom d'utilisateur défini : ${username}`);
+    console.log(`✅ Nom d'utilisateur défini : ${username}`);
   });
 
   socket.on("sendMessage", (message) => {
-    console.log(`Message de ${username}:`, message.text);
+    console.log(`💬 Message de ${username}:`, message.text);
     io.emit("receiveMessage", { ...message, sender: username });
   });
 
   socket.on("disconnect", () => {
-    console.log("Utilisateur déconnecté :", socket.id);
+    console.log("🔌 Utilisateur déconnecté :", socket.id);
   });
 });
 
@@ -295,5 +325,5 @@ const PORT = process.env.PORT || 3636;
 const IP_ADDRESS = "10.109.249.241";
 
 server.listen(PORT, IP_ADDRESS, () =>
-  console.log(`Serveur démarré sur http://${IP_ADDRESS}:${PORT}`)
+  console.log(`🚀 Serveur démarré sur http://${IP_ADDRESS}:${PORT}`)
 );

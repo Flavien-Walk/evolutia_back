@@ -10,7 +10,8 @@ const UserSchema = new mongoose.Schema({
     default: "User",
   },
   roleColor: { type: String, default: "#808080" },
-  selectedPlan: { type: String, default: "" }  // Ajout pour enregistrer l'offre choisie
+  selectedPlan: { type: String, default: "" }, // Offre choisie
+  profileImage: { type: String, default: "" }, // Photo de profil
 });
 
 UserSchema.pre("save", function (next) {
