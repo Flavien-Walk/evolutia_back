@@ -1,9 +1,15 @@
 const mongoose = require("mongoose");
 
+const CompletedModuleSchema = new mongoose.Schema({
+  moduleId: { type: String, required: true },
+  score: { type: Number, required: true },
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   username: { type: String, required: true },
   password: { type: String },
+
   role: {
     type: String,
     enum: ["User", "Bronze", "Gold", "Platinium", "Modérateur", "Admin", "Super-Admin"],
@@ -12,8 +18,27 @@ const UserSchema = new mongoose.Schema({
   roleColor: { type: String, default: "#808080" },
   selectedPlan: { type: String, default: "" }, // Offre choisie
   profileImage: { type: String, default: "" }, // Photo de profil
+
+  // Progression du quiz
+  quizProgress: {
+    currentQuestion: { type: Number, default: 0 },
+    score: { type: Number, default: 0 },
+  },
+
+  // Modules complétés pour débloquer la suite
+  completedModules: {
+    type: [String],
+    default: [],
+  },
+
+  // Modules complétés avec leur score associé
+  completedModulesWithScore: {
+    type: [CompletedModuleSchema],
+    default: [],
+  },
 });
 
+// Middleware pour mettre à jour automatiquement la couleur selon le rôle
 UserSchema.pre("save", function (next) {
   const roleColors = {
     User: "#808080",
