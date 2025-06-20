@@ -77,7 +77,9 @@ const userPayload = (user) => ({
 // 🌟 ROUTES AUTH
 app.post("/register", async (req, res) => {
   try {
-    const { email, username, password } = req.body;
+    const { email, password, firstName, lastName } = req.body;
+const username = `${firstName} ${lastName}`;
+
     console.log(`🔐 Inscription : ${username} (${email})`);
 
     if (await User.findOne({ email })) {
