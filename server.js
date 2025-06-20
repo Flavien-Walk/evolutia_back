@@ -20,7 +20,8 @@ const io = new Server(server, { cors: { origin: "*" } });
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // 🔗 Connexion MongoDB
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connecté"))
   .catch((err) => console.error("❌ MongoDB connexion échouée :", err));
 
@@ -32,6 +33,11 @@ app.use(cors());
 app.use((req, res, next) => {
   console.log(`[${new Date().toLocaleString()}] ${req.method} ${req.originalUrl}`);
   next();
+});
+
+// —––––––– ROUTE RACINE pour éviter l’erreur “Cannot GET /”
+app.get("/", (req, res) => {
+  res.send("🚀 API Evolutia fonctionne bien !");
 });
 
 // Middleware pour extraire et vérifier le token JWT
@@ -51,11 +57,12 @@ const authenticate = async (req, res, next) => {
 };
 
 // 🔐 Génération de token
-const generateToken = (user) => jwt.sign(
-  { userId: user._id, username: user.username },
-  process.env.JWT_SECRET,
-  { expiresIn: "1h" }
-);
+const generateToken = (user) =>
+  jwt.sign(
+    { userId: user._id, username: user.username },
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" }
+  );
 
 // 🛠️ Utilitaires
 const userPayload = (user) => ({
@@ -81,7 +88,11 @@ app.post("/register", async (req, res) => {
     const newUser = await User.create({ email, username, password: hashedPassword });
 
     const token = generateToken(newUser);
-    res.status(201).json({ message: "Utilisateur créé avec succès.", token, user: userPayload(newUser) });
+    res.status(201).json({
+      message: "Utilisateur créé avec succès.",
+      token,
+      user: userPayload(newUser),
+    });
   } catch (error) {
     console.error("❌ Erreur inscription :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -120,12 +131,20 @@ app.post("/google-login", async (req, res) => {
     let user = await User.findOne({ email });
     if (!user) {
       const hashedPassword = await bcrypt.hash(sub, 10);
-      user = await User.create({ email, username: name || "Google User", password: hashedPassword });
+      user = await User.create({
+        email,
+        username: name || "Google User",
+        password: hashedPassword,
+      });
       console.log(`✅ Compte Google créé : ${email}`);
     }
 
     const jwtToken = generateToken(user);
-    res.status(200).json({ message: "Connexion via Google réussie.", token: jwtToken, user: userPayload(user) });
+    res.status(200).json({
+      message: "Connexion via Google réussie.",
+      token: jwtToken,
+      user: userPayload(user),
+    });
   } catch (error) {
     console.error("❌ Erreur Google login :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -175,7 +194,10 @@ app.post("/update-profile-image", authenticate, async (req, res) => {
     );
 
     console.log(`✅ Profil mis à jour pour ${user.username}`);
-    res.status(200).json({ message: "Photo de profil mise à jour.", profileImage: user.profileImage });
+    res.status(200).json({
+      message: "Photo de profil mise à jour.",
+      profileImage: user.profileImage,
+    });
   } catch (error) {
     console.error("❌ Erreur update-profile-image :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -190,7 +212,9 @@ app.post("/save-progress", authenticate, async (req, res) => {
       return res.status(400).json({ error: "Données manquantes." });
     }
 
-    await User.findByIdAndUpdate(req.user.userId, { quizProgress: { currentQuestion, score } });
+    await User.findByIdAndUpdate(req.user.userId, {
+      quizProgress: { currentQuestion, score },
+    });
     res.status(200).json({ message: "Progression sauvegardée." });
   } catch (error) {
     console.error("❌ Erreur save-progress :", error);
@@ -228,9 +252,9 @@ app.post("/complete-module", authenticate, async (req, res) => {
       user.completedModules.push(moduleId);
     }
 
-    const index = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
-    if (index !== -1) {
-      user.completedModulesWithScore[index].score = score;
+    const idx = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
+    if (idx !== -1) {
+      user.completedModulesWithScore[idx].score = score;
     } else {
       user.completedModulesWithScore.push({ moduleId, score });
     }
@@ -269,6 +293,4 @@ io.on("connection", (socket) => {
 
 // 🚀 Serveur
 const PORT = process.env.PORT || 3636;
-server.listen(PORT, () =>
-  console.log(`🚀 Serveur démarré sur le port ${PORT}`)
-);
+server.listen(PORT, () => console.log(`🚀 Serveur démarré sur le port ${PORT}`));
