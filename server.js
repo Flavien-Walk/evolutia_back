@@ -57,6 +57,16 @@ const generateToken = (user) => jwt.sign(
   { expiresIn: "1h" }
 );
 
+// 🛠️ Utilitaires
+const userPayload = (user) => ({
+  username: user.username,
+  email: user.email,
+  role: user.role || "User",
+  roleColor: user.roleColor || "#808080",
+  profileImage: user.profileImage || "",
+  selectedPlan: user.selectedPlan || "",
+});
+
 // 🌟 ROUTES AUTH
 app.post("/register", async (req, res) => {
   try {
@@ -71,17 +81,7 @@ app.post("/register", async (req, res) => {
     const newUser = await User.create({ email, username, password: hashedPassword });
 
     const token = generateToken(newUser);
-    res.status(201).json({
-      message: "Utilisateur créé avec succès.",
-      token,
-      user: {
-        username: newUser.username,
-        email: newUser.email,
-        role: newUser.role,
-        roleColor: newUser.roleColor,
-        profileImage: newUser.profileImage || "",
-      },
-    });
+    res.status(201).json({ message: "Utilisateur créé avec succès.", token, user: userPayload(newUser) });
   } catch (error) {
     console.error("❌ Erreur inscription :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -99,17 +99,7 @@ app.post("/login", async (req, res) => {
     }
 
     const token = generateToken(user);
-    res.status(200).json({
-      message: "Connexion réussie.",
-      token,
-      user: {
-        username: user.username,
-        email: user.email,
-        role: user.role || "User",
-        roleColor: user.roleColor || "#808080",
-        profileImage: user.profileImage || "",
-      },
-    });
+    res.status(200).json({ message: "Connexion réussie.", token, user: userPayload(user) });
   } catch (error) {
     console.error("❌ Erreur connexion :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -135,24 +125,14 @@ app.post("/google-login", async (req, res) => {
     }
 
     const jwtToken = generateToken(user);
-    res.status(200).json({
-      message: "Connexion via Google réussie.",
-      token: jwtToken,
-      user: {
-        username: user.username,
-        email: user.email,
-        role: user.role || "User",
-        roleColor: user.roleColor || "#808080",
-        profileImage: user.profileImage || "",
-      },
-    });
+    res.status(200).json({ message: "Connexion via Google réussie.", token: jwtToken, user: userPayload(user) });
   } catch (error) {
     console.error("❌ Erreur Google login :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-app.post("/logout", authenticate, async (req, res) => {
+app.post("/logout", authenticate, (req, res) => {
   console.log(`🔌 Déconnexion : ${req.user.username}`);
   res.status(200).json({ message: "Déconnexion réussie." });
 });
@@ -162,15 +142,7 @@ app.get("/user-info", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
-
-    res.status(200).json({
-      username: user.username,
-      email: user.email,
-      role: user.role || "User",
-      roleColor: user.roleColor || "#808080",
-      selectedPlan: user.selectedPlan || "",
-      profileImage: user.profileImage || "",
-    });
+    res.status(200).json(userPayload(user));
   } catch (error) {
     console.error("❌ Erreur user-info :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -242,7 +214,6 @@ app.get("/get-progress", authenticate, async (req, res) => {
   }
 });
 
-// 🔥 NOUVELLE ROUTE : COMPLETE MODULE avec score
 app.post("/complete-module", authenticate, async (req, res) => {
   try {
     const { moduleId, score } = req.body;
@@ -257,15 +228,13 @@ app.post("/complete-module", authenticate, async (req, res) => {
       user.completedModules.push(moduleId);
     }
 
-    // Met à jour ou ajoute le score du module dans completedModulesWithScore
-    const existingIndex = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
-    if (existingIndex !== -1) {
-      user.completedModulesWithScore[existingIndex].score = score;
+    const index = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
+    if (index !== -1) {
+      user.completedModulesWithScore[index].score = score;
     } else {
       user.completedModulesWithScore.push({ moduleId, score });
     }
 
-    // Réinitialise la progression du quiz
     user.quizProgress = { currentQuestion: 0, score };
     await user.save();
 
@@ -282,6 +251,7 @@ io.on("connection", (socket) => {
   console.log("⚡ Connexion Socket.IO :", socket.id);
 
   let username = "Anonymous";
+
   socket.on("setUsername", ({ username: name }) => {
     username = name;
     console.log(`✅ Nom d'utilisateur : ${username}`);
@@ -299,7 +269,6 @@ io.on("connection", (socket) => {
 
 // 🚀 Serveur
 const PORT = process.env.PORT || 3636;
-const IP_ADDRESS = "10.109.249.241";
-server.listen(PORT, IP_ADDRESS, () =>
-  console.log(`🚀 Serveur démarré sur http://${IP_ADDRESS}:${PORT}`)
+server.listen(PORT, () =>
+  console.log(`🚀 Serveur démarré sur le port ${PORT}`)
 );
