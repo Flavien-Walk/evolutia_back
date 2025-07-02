@@ -42,18 +42,16 @@ app.get("/", (req, res) => {
 
 // Middleware pour extraire et vérifier le token JWT
 const authenticate = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Token manquant ou invalide." });
+  }
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token manquant ou invalide." });
-    }
-    
     const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (error) {
-    console.log("⚠️ Token invalide ou expiré:", error.message);
+    console.log("⚠️ Token invalide ou expiré.");
     res.status(401).json({ error: "Token invalide ou expiré." });
   }
 };
@@ -63,7 +61,7 @@ const generateToken = (user) =>
   jwt.sign(
     { userId: user._id, username: user.username },
     process.env.JWT_SECRET,
-    { expiresIn: "24h" }
+    { expiresIn: "1h" }
   );
 
 // 🛠️ Utilitaires
@@ -71,176 +69,87 @@ const userPayload = (user) => ({
   username: user.username,
   email: user.email,
   role: user.role || "User",
-  roleColor: user.roleColor || "#6C63FF",
+  roleColor: user.roleColor || "#808080",
   profileImage: user.profileImage || "",
   selectedPlan: user.selectedPlan || "",
 });
 
-// Fonction de validation email
-const isValidEmail = (email) => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-};
-
-// 🌟 ROUTES AUTH CORRIGÉES
+// 🌟 ROUTES AUTH - VERSION ORIGINALE QUI MARCHAIT
 app.post("/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
-    
-    // ✅ Validation des données d'entrée
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: "Tous les champs sont requis." });
+    const username = `${firstName} ${lastName}`;
+
+    console.log(`🔐 Inscription : ${username} (${email})`);
+
+    if (await User.findOne({ email })) {
+      return res.status(400).json({ error: "Email déjà utilisé." });
     }
 
-    // ✅ Validation de l'email
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: "Format d'email invalide." });
-    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = await User.create({ email, username, password: hashedPassword });
 
-    // ✅ Validation du mot de passe
-    if (password.length < 6) {
-      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
-    }
-
-    const username = `${firstName.trim()} ${lastName.trim()}`;
-    console.log(`🔐 Tentative d'inscription : ${username} (${email})`);
-
-    // ✅ Vérifier si l'utilisateur existe déjà
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
-    if (existingUser) {
-      console.log(`⚠️ Email déjà utilisé : ${email}`);
-      return res.status(400).json({ error: "Un compte existe déjà avec cet email." });
-    }
-
-    // ✅ Créer le hash du mot de passe
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    // ✅ Créer le nouvel utilisateur
-    const newUser = await User.create({
-      email: email.toLowerCase(),
-      username: username,
-      password: hashedPassword,
-      completedModules: [],
-      completedModulesWithScore: [],
-      quizProgress: { currentQuestion: 0, score: 0 }
-    });
-
-    console.log(`✅ Utilisateur créé avec succès : ${newUser.username}`);
-
-    // ✅ Générer le token
     const token = generateToken(newUser);
-
     res.status(201).json({
       message: "Utilisateur créé avec succès.",
       token,
       user: userPayload(newUser),
     });
-
   } catch (error) {
     console.error("❌ Erreur inscription :", error);
-    if (error.code === 11000) {
-      return res.status(400).json({ error: "Email déjà utilisé." });
-    }
-    res.status(500).json({ error: "Erreur serveur lors de l'inscription." });
+    res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    // ✅ Validation des données d'entrée
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email et mot de passe requis." });
-    }
+    console.log(`🔑 Connexion : ${email}`);
 
-    console.log(`🔑 Tentative de connexion : ${email}`);
-
-    // ✅ Chercher l'utilisateur
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      console.log(`⚠️ Utilisateur non trouvé : ${email}`);
+    const user = await User.findOne({ email });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(400).json({ error: "Email ou mot de passe incorrect." });
     }
 
-    // ✅ Vérifier le mot de passe
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      console.log(`⚠️ Mot de passe incorrect pour : ${email}`);
-      return res.status(400).json({ error: "Email ou mot de passe incorrect." });
-    }
-
-    console.log(`✅ Connexion réussie : ${user.username}`);
-
-    // ✅ Générer le token
     const token = generateToken(user);
-
-    res.status(200).json({
-      message: "Connexion réussie.",
-      token,
-      user: userPayload(user),
-    });
-
+    res.status(200).json({ message: "Connexion réussie.", token, user: userPayload(user) });
   } catch (error) {
     console.error("❌ Erreur connexion :", error);
-    res.status(500).json({ error: "Erreur serveur lors de la connexion." });
+    res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
 app.post("/google-login", async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ error: "Token Google manquant." });
-    }
+    if (!token) return res.status(400).json({ error: "Token Google manquant." });
 
-    console.log("🔍 Vérification du token Google...");
-
-    // ✅ Vérifier le token Google
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
+    const { email, name, sub } = ticket.getPayload();
 
-    const payload = ticket.getPayload();
-    const { email, name, sub } = payload;
-
-    console.log(`🔍 Token Google valide pour : ${email}`);
-
-    // ✅ Chercher ou créer l'utilisateur
-    let user = await User.findOne({ email: email.toLowerCase() });
-    
+    let user = await User.findOne({ email });
     if (!user) {
-      console.log(`➕ Création d'un nouveau compte Google : ${email}`);
-      
-      const hashedPassword = await bcrypt.hash(sub, 12);
+      const hashedPassword = await bcrypt.hash(sub, 10);
       user = await User.create({
-        email: email.toLowerCase(),
+        email,
         username: name || "Google User",
         password: hashedPassword,
-        completedModules: [],
-        completedModulesWithScore: [],
-        quizProgress: { currentQuestion: 0, score: 0 }
       });
-      
-      console.log(`✅ Compte Google créé : ${user.username}`);
-    } else {
-      console.log(`✅ Connexion Google existante : ${user.username}`);
+      console.log(`✅ Compte Google créé : ${email}`);
     }
 
-    // ✅ Générer le token JWT
     const jwtToken = generateToken(user);
-
     res.status(200).json({
       message: "Connexion via Google réussie.",
       token: jwtToken,
       user: userPayload(user),
     });
-
   } catch (error) {
     console.error("❌ Erreur Google login :", error);
-    res.status(500).json({ error: "Erreur serveur lors de la connexion Google." });
+    res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
@@ -249,15 +158,11 @@ app.post("/logout", authenticate, (req, res) => {
   res.status(200).json({ message: "Déconnexion réussie." });
 });
 
-// 🌟 ROUTES UTILISATEUR
+// 🌟 ROUTES UTILISATEUR - VERSION ORIGINALE
 app.get("/user-info", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
-    }
-    
-    console.log(`📋 Infos utilisateur récupérées : ${user.username}`);
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
     res.status(200).json(userPayload(user));
   } catch (error) {
     console.error("❌ Erreur user-info :", error);
@@ -268,13 +173,11 @@ app.get("/user-info", authenticate, async (req, res) => {
 app.post("/choose-plan", authenticate, async (req, res) => {
   try {
     const { plan } = req.body;
-    if (!plan) {
-      return res.status(400).json({ error: "Plan non spécifié." });
-    }
+    if (!plan) return res.status(400).json({ error: "Plan non spécifié." });
 
     await User.findByIdAndUpdate(req.user.userId, { selectedPlan: plan });
     console.log(`✅ ${req.user.username} a choisi le plan ${plan}`);
-    res.status(200).json({ message: "Plan mis à jour avec succès." });
+    res.status(200).json({ message: "Plan mis à jour." });
   } catch (error) {
     console.error("❌ Erreur choose-plan :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -284,9 +187,7 @@ app.post("/choose-plan", authenticate, async (req, res) => {
 app.post("/update-profile-image", authenticate, async (req, res) => {
   try {
     const { imageUri } = req.body;
-    if (!imageUri) {
-      return res.status(400).json({ error: "Image manquante." });
-    }
+    if (!imageUri) return res.status(400).json({ error: "Image manquante." });
 
     const user = await User.findByIdAndUpdate(
       req.user.userId,
@@ -294,13 +195,9 @@ app.post("/update-profile-image", authenticate, async (req, res) => {
       { new: true }
     );
 
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
-    }
-
-    console.log(`✅ Photo de profil mise à jour pour ${user.username}`);
+    console.log(`✅ Profil mis à jour pour ${user.username}`);
     res.status(200).json({
-      message: "Photo de profil mise à jour avec succès.",
+      message: "Photo de profil mise à jour.",
       profileImage: user.profileImage,
     });
   } catch (error) {
@@ -309,26 +206,18 @@ app.post("/update-profile-image", authenticate, async (req, res) => {
   }
 });
 
-// 🌟 ROUTES QUIZ
+// 🌟 ROUTES QUIZ - VERSION ORIGINALE + CORRECTION MODULES
 app.post("/save-progress", authenticate, async (req, res) => {
   try {
     const { currentQuestion, score } = req.body;
     if (currentQuestion == null || score == null) {
-      return res.status(400).json({ error: "Données de progression manquantes." });
+      return res.status(400).json({ error: "Données manquantes." });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.userId,
-      { quizProgress: { currentQuestion, score } },
-      { new: true }
-    );
-
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
-    }
-
-    console.log(`💾 Progression sauvegardée pour ${user.username}: Q${currentQuestion}, Score ${score}`);
-    res.status(200).json({ message: "Progression sauvegardée avec succès." });
+    await User.findByIdAndUpdate(req.user.userId, {
+      quizProgress: { currentQuestion, score },
+    });
+    res.status(200).json({ message: "Progression sauvegardée." });
   } catch (error) {
     console.error("❌ Erreur save-progress :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -338,29 +227,20 @@ app.post("/save-progress", authenticate, async (req, res) => {
 app.get("/get-progress", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
-    }
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
-    const progressData = {
-      currentQuestion: user.quizProgress?.currentQuestion || 0,
-      score: user.quizProgress?.score || 0,
+    res.status(200).json({
+      ...user.quizProgress,
       completedModules: user.completedModules || [],
       completedModulesWithScore: user.completedModulesWithScore || [],
-    };
-
-    console.log(`📊 Progression récupérée pour ${user.username}:`, {
-      completedModules: progressData.completedModules.length,
-      completedModulesWithScore: progressData.completedModulesWithScore.length
     });
-
-    res.status(200).json(progressData);
   } catch (error) {
     console.error("❌ Erreur get-progress :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
+// ✅ SEULE ROUTE MODIFIÉE POUR CORRIGER LES DOUBLONS
 app.post("/complete-module", authenticate, async (req, res) => {
   try {
     const { moduleId, score } = req.body;
@@ -369,9 +249,7 @@ app.post("/complete-module", authenticate, async (req, res) => {
     }
 
     const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
-    }
+    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
     // ✅ Assurer l'initialisation des tableaux
     if (!user.completedModules) user.completedModules = [];
@@ -396,44 +274,31 @@ app.post("/complete-module", authenticate, async (req, res) => {
     }
 
     // ✅ Réinitialiser la progression du quiz
-    user.quizProgress = { currentQuestion: 0, score: 0 };
-    
+    user.quizProgress = { currentQuestion: 0, score };
     await user.save();
 
-    // ✅ Debug logs pour vérifier la cohérence
-    console.log(`📊 État après sauvegarde pour ${user.username}:`);
-    console.log(`   - completedModules (${user.completedModules.length}): [${user.completedModules.join(', ')}]`);
-    console.log(`   - completedModulesWithScore (${user.completedModulesWithScore.length}): ${JSON.stringify(user.completedModulesWithScore)}`);
-
-    res.status(200).json({ 
-      message: "Module marqué comme complété avec succès.",
-      debug: {
-        completedModulesCount: user.completedModules.length,
-        completedModulesWithScoreCount: user.completedModulesWithScore.length
-      }
-    });
+    console.log(`✅ Module ${moduleId} terminé avec un score de ${score} pour ${user.username}`);
+    res.status(200).json({ message: "Module marqué comme complété." });
   } catch (error) {
     console.error("❌ Erreur complete-module :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// 🌐 SOCKET.IO
+// 🌐 SOCKET.IO - VERSION ORIGINALE
 io.on("connection", (socket) => {
-  console.log("⚡ Nouvelle connexion Socket.IO :", socket.id);
+  console.log("⚡ Connexion Socket.IO :", socket.id);
 
   let username = "Anonymous";
 
   socket.on("setUsername", ({ username: name }) => {
-    username = name || "Anonymous";
-    console.log(`✅ Nom d'utilisateur défini : ${username}`);
+    username = name;
+    console.log(`✅ Nom d'utilisateur : ${username}`);
   });
 
   socket.on("sendMessage", (message) => {
-    if (message && message.text) {
-      console.log(`💬 ${username}:`, message.text);
-      io.emit("receiveMessage", { ...message, sender: username });
-    }
+    console.log(`💬 ${username}:`, message.text);
+    io.emit("receiveMessage", { ...message, sender: username });
   });
 
   socket.on("disconnect", () => {
@@ -441,21 +306,8 @@ io.on("connection", (socket) => {
   });
 });
 
-// 🚀 Gestion d'erreurs globales
-process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Promise Rejection:', err);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
-  process.exit(1);
-});
-
 // 🚀 Serveur
 const PORT = process.env.PORT || 3636;
-server.listen(PORT, () => {
-  console.log(`🚀 Serveur Evolutia démarré sur le port ${PORT}`);
-  console.log(`📍 Environnement: ${process.env.NODE_ENV || 'development'}`);
-});
+server.listen(PORT, () => console.log(`🚀 Serveur démarré sur le port ${PORT}`));
 
 // Coucou Charles :)
