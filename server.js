@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// —––––––– ROUTE RACINE pour éviter l’erreur “Cannot GET /”
+// —––––––– ROUTE RACINE pour éviter l'erreur "Cannot GET /"
 app.get("/", (req, res) => {
   res.send("🚀 API Evolutia fonctionne bien !");
 });
@@ -78,7 +78,7 @@ const userPayload = (user) => ({
 app.post("/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
-const username = `${firstName} ${lastName}`;
+    const username = `${firstName} ${lastName}`;
 
     console.log(`🔐 Inscription : ${username} (${email})`);
 
@@ -250,22 +250,45 @@ app.post("/complete-module", authenticate, async (req, res) => {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
+    // ✅ Assurer l'initialisation des tableaux
+    if (!user.completedModules) user.completedModules = [];
+    if (!user.completedModulesWithScore) user.completedModulesWithScore = [];
+
+    // ✅ Ajouter à completedModules SEULEMENT si pas déjà présent
     if (!user.completedModules.includes(moduleId)) {
       user.completedModules.push(moduleId);
+      console.log(`➕ Module ${moduleId} ajouté à completedModules`);
     }
 
-    const idx = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
-    if (idx !== -1) {
-      user.completedModulesWithScore[idx].score = score;
+    // ✅ Gérer completedModulesWithScore (mise à jour ou ajout)
+    const existingIndex = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
+    if (existingIndex !== -1) {
+      // Module déjà présent, on met à jour le score
+      user.completedModulesWithScore[existingIndex].score = score;
+      console.log(`🔄 Score mis à jour pour ${moduleId}: ${score}%`);
     } else {
+      // Nouveau module, on l'ajoute
       user.completedModulesWithScore.push({ moduleId, score });
+      console.log(`➕ Nouveau module ajouté: ${moduleId} avec score ${score}%`);
     }
 
-    user.quizProgress = { currentQuestion: 0, score };
+    // ✅ Réinitialiser la progression du quiz
+    user.quizProgress = { currentQuestion: 0, score: 0 };
+    
     await user.save();
 
-    console.log(`✅ Module ${moduleId} terminé avec un score de ${score} pour ${user.username}`);
-    res.status(200).json({ message: "Module marqué comme complété." });
+    // ✅ Debug logs pour vérifier la cohérence
+    console.log(`📊 État après sauvegarde pour ${user.username}:`);
+    console.log(`   - completedModules (${user.completedModules.length}): [${user.completedModules.join(', ')}]`);
+    console.log(`   - completedModulesWithScore (${user.completedModulesWithScore.length}): ${JSON.stringify(user.completedModulesWithScore)}`);
+
+    res.status(200).json({ 
+      message: "Module marqué comme complété.",
+      debug: {
+        completedModulesCount: user.completedModules.length,
+        completedModulesWithScoreCount: user.completedModulesWithScore.length
+      }
+    });
   } catch (error) {
     console.error("❌ Erreur complete-module :", error);
     res.status(500).json({ error: "Erreur serveur." });
@@ -297,5 +320,4 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 3636;
 server.listen(PORT, () => console.log(`🚀 Serveur démarré sur le port ${PORT}`));
 
-
-// Coucou Charles :) 
+// Coucou Charles :)
