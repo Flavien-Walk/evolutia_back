@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// —––––––– ROUTE RACINE pour éviter l'erreur "Cannot GET /"
+// —––––––– ROUTE RACINE pour éviter l’erreur “Cannot GET /”
 app.get("/", (req, res) => {
   res.send("🚀 API Evolutia fonctionne bien !");
 });
@@ -74,11 +74,11 @@ const userPayload = (user) => ({
   selectedPlan: user.selectedPlan || "",
 });
 
-// 🌟 ROUTES AUTH - VERSION ORIGINALE QUI MARCHAIT
+// 🌟 ROUTES AUTH
 app.post("/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
-    const username = `${firstName} ${lastName}`;
+const username = `${firstName} ${lastName}`;
 
     console.log(`🔐 Inscription : ${username} (${email})`);
 
@@ -158,7 +158,7 @@ app.post("/logout", authenticate, (req, res) => {
   res.status(200).json({ message: "Déconnexion réussie." });
 });
 
-// 🌟 ROUTES UTILISATEUR - VERSION ORIGINALE
+// 🌟 ROUTES UTILISATEUR
 app.get("/user-info", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -206,7 +206,7 @@ app.post("/update-profile-image", authenticate, async (req, res) => {
   }
 });
 
-// 🌟 ROUTES QUIZ - VERSION ORIGINALE + CORRECTION MODULES
+// 🌟 ROUTES QUIZ
 app.post("/save-progress", authenticate, async (req, res) => {
   try {
     const { currentQuestion, score } = req.body;
@@ -240,7 +240,6 @@ app.get("/get-progress", authenticate, async (req, res) => {
   }
 });
 
-// ✅ SEULE ROUTE MODIFIÉE POUR CORRIGER LES DOUBLONS
 app.post("/complete-module", authenticate, async (req, res) => {
   try {
     const { moduleId, score } = req.body;
@@ -251,29 +250,17 @@ app.post("/complete-module", authenticate, async (req, res) => {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
-    // ✅ Assurer l'initialisation des tableaux
-    if (!user.completedModules) user.completedModules = [];
-    if (!user.completedModulesWithScore) user.completedModulesWithScore = [];
-
-    // ✅ Ajouter à completedModules SEULEMENT si pas déjà présent
     if (!user.completedModules.includes(moduleId)) {
       user.completedModules.push(moduleId);
-      console.log(`➕ Module ${moduleId} ajouté à completedModules`);
     }
 
-    // ✅ Gérer completedModulesWithScore (mise à jour ou ajout)
-    const existingIndex = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
-    if (existingIndex !== -1) {
-      // Module déjà présent, on met à jour le score
-      user.completedModulesWithScore[existingIndex].score = score;
-      console.log(`🔄 Score mis à jour pour ${moduleId}: ${score}%`);
+    const idx = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
+    if (idx !== -1) {
+      user.completedModulesWithScore[idx].score = score;
     } else {
-      // Nouveau module, on l'ajoute
       user.completedModulesWithScore.push({ moduleId, score });
-      console.log(`➕ Nouveau module ajouté: ${moduleId} avec score ${score}%`);
     }
 
-    // ✅ Réinitialiser la progression du quiz
     user.quizProgress = { currentQuestion: 0, score };
     await user.save();
 
@@ -285,7 +272,7 @@ app.post("/complete-module", authenticate, async (req, res) => {
   }
 });
 
-// 🌐 SOCKET.IO - VERSION ORIGINALE
+// 🌐 SOCKET.IO
 io.on("connection", (socket) => {
   console.log("⚡ Connexion Socket.IO :", socket.id);
 
@@ -310,4 +297,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 3636;
 server.listen(PORT, () => console.log(`🚀 Serveur démarré sur le port ${PORT}`));
 
-// Coucou Charles :)
+
+// Coucou Charles :) 
