@@ -35,6 +35,11 @@ app.use((req, res, next) => {
   next();
 });
 
+// —––––––– ROUTE RACINE pour éviter l'erreur "Cannot GET /"
+app.get("/", (req, res) => {
+  res.send("🚀 API Evolutia fonctionne bien !");
+});
+
 // Middleware pour extraire et vérifier le token JWT
 const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -50,23 +55,6 @@ const authenticate = async (req, res, next) => {
     res.status(401).json({ error: "Token invalide ou expiré." });
   }
 };
-
-// Configuration des modules disponibles
-const AVAILABLE_MODULES = {
-  'math': { name: 'Mathématiques', totalQuestions: 10, emoji: '🔢' },
-  'physics': { name: 'Physique', totalQuestions: 10, emoji: '⚛️' },
-  'chemistry': { name: 'Chimie', totalQuestions: 10, emoji: '🧪' },
-  'biology': { name: 'Biologie', totalQuestions: 10, emoji: '🧬' },
-  'french': { name: 'Français', totalQuestions: 10, emoji: '📚' },
-  'english': { name: 'Anglais', totalQuestions: 10, emoji: '🇬🇧' },
-  'history': { name: 'Histoire', totalQuestions: 10, emoji: '🏛️' },
-  'geography': { name: 'Géographie', totalQuestions: 10, emoji: '🌍' }
-};
-
-// —––––––– ROUTE RACINE
-app.get("/", (req, res) => {
-  res.send("🚀 API Evolutia fonctionne bien !");
-});
 
 // 🔐 Génération de token
 const generateToken = (user) =>
@@ -86,7 +74,7 @@ const userPayload = (user) => ({
   selectedPlan: user.selectedPlan || "",
 });
 
-// 🌟 ROUTES AUTH (inchangées)
+// 🌟 ROUTES AUTH - VERSION ORIGINALE QUI MARCHAIT
 app.post("/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
@@ -165,7 +153,12 @@ app.post("/google-login", async (req, res) => {
   }
 });
 
-// 🌟 ROUTES UTILISATEUR (inchangées)
+app.post("/logout", authenticate, (req, res) => {
+  console.log(`🔌 Déconnexion : ${req.user.username}`);
+  res.status(200).json({ message: "Déconnexion réussie." });
+});
+
+// 🌟 ROUTES UTILISATEUR - VERSION ORIGINALE
 app.get("/user-info", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -177,321 +170,67 @@ app.get("/user-info", authenticate, async (req, res) => {
   }
 });
 
-// ✨ NOUVELLES ROUTES QUIZ AVEC SUIVI GRANULAIRE
-
-// 📊 Démarrer ou reprendre un module
-app.post("/start-module", authenticate, async (req, res) => {
+app.post("/choose-plan", authenticate, async (req, res) => {
   try {
-    const { moduleId } = req.body;
-    if (!moduleId || !AVAILABLE_MODULES[moduleId]) {
-      return res.status(400).json({ error: "Module ID invalide." });
-    }
+    const { plan } = req.body;
+    if (!plan) return res.status(400).json({ error: "Plan non spécifié." });
 
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
-
-    // Initialiser les structures si nécessaire
-    if (!user.moduleProgress) user.moduleProgress = new Map();
-    if (!user.completedModules) user.completedModules = [];
-    if (!user.completedModulesWithScore) user.completedModulesWithScore = [];
-
-    // Vérifier si le module existe déjà
-    const existingProgress = user.moduleProgress.get(moduleId);
-    
-    if (!existingProgress) {
-      // Nouveau module
-      user.moduleProgress.set(moduleId, {
-        moduleId,
-        questionsAnswered: 0,
-        totalQuestions: AVAILABLE_MODULES[moduleId].totalQuestions,
-        correctAnswers: 0,
-        startedAt: new Date(),
-        status: 'in_progress',
-        questionResults: []
-      });
-      await user.save();
-      
-      console.log(`🚀 Module ${moduleId} démarré pour ${user.username}`);
-      res.status(200).json({ 
-        message: "Module démarré.", 
-        progress: user.moduleProgress.get(moduleId)
-      });
-    } else {
-      // Module existant
-      console.log(`🔄 Module ${moduleId} repris pour ${user.username}`);
-      res.status(200).json({ 
-        message: "Module repris.", 
-        progress: existingProgress 
-      });
-    }
+    await User.findByIdAndUpdate(req.user.userId, { selectedPlan: plan });
+    console.log(`✅ ${req.user.username} a choisi le plan ${plan}`);
+    res.status(200).json({ message: "Plan mis à jour." });
   } catch (error) {
-    console.error("❌ Erreur start-module :", error);
+    console.error("❌ Erreur choose-plan :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// 📝 Enregistrer la réponse à une question
-app.post("/answer-question", authenticate, async (req, res) => {
+app.post("/update-profile-image", authenticate, async (req, res) => {
   try {
-    const { moduleId, questionIndex, isCorrect, timeSpent } = req.body;
-    
-    if (!moduleId || questionIndex === undefined || isCorrect === undefined) {
+    const { imageUri } = req.body;
+    if (!imageUri) return res.status(400).json({ error: "Image manquante." });
+
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { profileImage: imageUri },
+      { new: true }
+    );
+
+    console.log(`✅ Profil mis à jour pour ${user.username}`);
+    res.status(200).json({
+      message: "Photo de profil mise à jour.",
+      profileImage: user.profileImage,
+    });
+  } catch (error) {
+    console.error("❌ Erreur update-profile-image :", error);
+    res.status(500).json({ error: "Erreur serveur." });
+  }
+});
+
+// 🌟 ROUTES QUIZ - VERSION ORIGINALE + CORRECTION MODULES
+app.post("/save-progress", authenticate, async (req, res) => {
+  try {
+    const { currentQuestion, score } = req.body;
+    if (currentQuestion == null || score == null) {
       return res.status(400).json({ error: "Données manquantes." });
     }
 
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
-
-    if (!user.moduleProgress) user.moduleProgress = new Map();
-    
-    const moduleProgress = user.moduleProgress.get(moduleId);
-    if (!moduleProgress) {
-      return res.status(400).json({ error: "Module non démarré." });
-    }
-
-    // Vérifier si la question n'a pas déjà été répondue
-    const existingAnswer = moduleProgress.questionResults.find(q => q.questionIndex === questionIndex);
-    if (existingAnswer) {
-      return res.status(400).json({ error: "Question déjà répondue." });
-    }
-
-    // Enregistrer la réponse
-    moduleProgress.questionResults.push({
-      questionIndex,
-      isCorrect,
-      timeSpent: timeSpent || 0,
-      answeredAt: new Date()
+    await User.findByIdAndUpdate(req.user.userId, {
+      quizProgress: { currentQuestion, score },
     });
-
-    if (isCorrect) {
-      moduleProgress.correctAnswers++;
-    }
-    
-    moduleProgress.questionsAnswered = moduleProgress.questionResults.length;
-    
-    // Vérifier si le module est terminé
-    if (moduleProgress.questionsAnswered >= moduleProgress.totalQuestions) {
-      moduleProgress.status = 'completed';
-      moduleProgress.completedAt = new Date();
-      moduleProgress.finalScore = Math.round((moduleProgress.correctAnswers / moduleProgress.totalQuestions) * 100);
-      
-      // Ajouter aux modules complétés
-      if (!user.completedModules.includes(moduleId)) {
-        user.completedModules.push(moduleId);
-      }
-      
-      // Mettre à jour ou ajouter le score
-      const existingScoreIndex = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
-      if (existingScoreIndex !== -1) {
-        user.completedModulesWithScore[existingScoreIndex].score = moduleProgress.finalScore;
-      } else {
-        user.completedModulesWithScore.push({
-          moduleId,
-          score: moduleProgress.finalScore
-        });
-      }
-      
-      console.log(`🎉 Module ${moduleId} terminé par ${user.username} avec ${moduleProgress.finalScore}%`);
-    }
-
-    user.moduleProgress.set(moduleId, moduleProgress);
-    await user.save();
-
-    res.status(200).json({
-      message: "Réponse enregistrée.",
-      progress: moduleProgress,
-      isModuleCompleted: moduleProgress.status === 'completed'
-    });
-
+    res.status(200).json({ message: "Progression sauvegardée." });
   } catch (error) {
-    console.error("❌ Erreur answer-question :", error);
+    console.error("❌ Erreur save-progress :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// 📊 Obtenir les statistiques détaillées
-app.get("/get-detailed-progress", authenticate, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
-
-    // Convertir la Map en objet
-    const moduleProgressObj = {};
-    if (user.moduleProgress) {
-      for (const [key, value] of user.moduleProgress) {
-        moduleProgressObj[key] = value;
-      }
-    }
-
-    // Calculer les statistiques globales
-    const totalAvailableModules = Object.keys(AVAILABLE_MODULES).length;
-    const completedModules = user.completedModules || [];
-    const completedModulesWithScore = user.completedModulesWithScore || [];
-    
-    // Modules en cours
-    const modulesInProgress = [];
-    if (user.moduleProgress) {
-      for (const [moduleId, progress] of user.moduleProgress) {
-        if (progress.status === 'in_progress') {
-          modulesInProgress.push({
-            moduleId,
-            questionsAnswered: progress.questionsAnswered,
-            totalQuestions: progress.totalQuestions,
-            progressPercentage: Math.round((progress.questionsAnswered / progress.totalQuestions) * 100),
-            currentScore: progress.questionsAnswered > 0 ? Math.round((progress.correctAnswers / progress.questionsAnswered) * 100) : 0
-          });
-        }
-      }
-    }
-
-    // Calculs statistiques
-    const totalQuestionsAnswered = Object.values(moduleProgressObj).reduce((sum, module) => 
-      sum + (module.questionsAnswered || 0), 0
-    );
-    
-    const totalCorrectAnswers = Object.values(moduleProgressObj).reduce((sum, module) => 
-      sum + (module.correctAnswers || 0), 0
-    );
-
-    const globalAccuracy = totalQuestionsAnswered > 0 ? 
-      Math.round((totalCorrectAnswers / totalQuestionsAnswered) * 100) : 0;
-
-    const globalProgress = Math.round((completedModules.length / totalAvailableModules) * 100);
-    
-    const averageScore = completedModulesWithScore.length > 0 ? 
-      Math.round(completedModulesWithScore.reduce((sum, m) => sum + m.score, 0) / completedModulesWithScore.length) : 0;
-
-    const bestScore = completedModulesWithScore.length > 0 ? 
-      Math.max(...completedModulesWithScore.map(m => m.score)) : 0;
-
-    // Temps total passé
-    const totalTimeSpent = Object.values(moduleProgressObj).reduce((sum, module) => {
-      if (module.questionResults) {
-        return sum + module.questionResults.reduce((moduleSum, q) => moduleSum + (q.timeSpent || 0), 0);
-      }
-      return sum;
-    }, 0);
-
-    // Analyse des forces et faiblesses
-    const subjectAnalysis = completedModulesWithScore.map(module => ({
-      moduleId: module.moduleId,
-      score: module.score,
-      name: AVAILABLE_MODULES[module.moduleId]?.name || module.moduleId,
-      emoji: AVAILABLE_MODULES[module.moduleId]?.emoji || '📚'
-    })).sort((a, b) => b.score - a.score);
-
-    res.status(200).json({
-      // Progression globale
-      globalStats: {
-        globalProgress,
-        totalAvailableModules,
-        completedModulesCount: completedModules.length,
-        modulesInProgressCount: modulesInProgress.length,
-        averageScore,
-        bestScore,
-        globalAccuracy,
-        totalQuestionsAnswered,
-        totalCorrectAnswers,
-        totalTimeSpent: Math.round(totalTimeSpent / 60) // en minutes
-      },
-      
-      // Modules complétés avec scores
-      completedModulesWithScore,
-      
-      // Modules en cours
-      modulesInProgress,
-      
-      // Détails par module
-      moduleProgress: moduleProgressObj,
-      
-      // Analyse des matières
-      subjectAnalysis,
-      
-      // Données pour graphiques
-      chartData: {
-        scoreDistribution: completedModulesWithScore,
-        progressTimeline: Object.values(moduleProgressObj)
-          .filter(m => m.completedAt)
-          .sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt))
-          .map(m => ({
-            date: m.completedAt,
-            moduleId: m.moduleId,
-            score: m.finalScore
-          })),
-        accuracyByModule: Object.entries(moduleProgressObj).map(([moduleId, progress]) => ({
-          moduleId,
-          accuracy: progress.questionsAnswered > 0 ? 
-            Math.round((progress.correctAnswers / progress.questionsAnswered) * 100) : 0,
-          questionsAnswered: progress.questionsAnswered
-        }))
-      },
-
-      // Recommandations
-      recommendations: generateRecommendations(moduleProgressObj, completedModulesWithScore, modulesInProgress)
-    });
-
-  } catch (error) {
-    console.error("❌ Erreur get-detailed-progress :", error);
-    res.status(500).json({ error: "Erreur serveur." });
-  }
-});
-
-// 🎯 Fonction pour générer des recommandations personnalisées
-function generateRecommendations(moduleProgress, completedModules, modulesInProgress) {
-  const recommendations = [];
-  
-  // Recommandation pour modules en cours
-  if (modulesInProgress.length > 0) {
-    const nearCompletion = modulesInProgress.filter(m => m.progressPercentage >= 70);
-    if (nearCompletion.length > 0) {
-      recommendations.push({
-        type: 'completion',
-        priority: 'high',
-        message: `Tu es proche de terminer ${nearCompletion.length} module(s). Continue !`,
-        modules: nearCompletion.map(m => m.moduleId)
-      });
-    }
-  }
-  
-  // Recommandation pour amélioration
-  if (completedModules.length > 0) {
-    const lowScores = completedModules.filter(m => m.score < 70);
-    if (lowScores.length > 0) {
-      recommendations.push({
-        type: 'improvement',
-        priority: 'medium',
-        message: `Révise ${lowScores[0].moduleId} pour améliorer ton score de ${lowScores[0].score}%`,
-        modules: [lowScores[0].moduleId]
-      });
-    }
-  }
-  
-  // Recommandation pour nouveaux modules
-  const availableModules = Object.keys(AVAILABLE_MODULES);
-  const startedModules = Object.keys(moduleProgress);
-  const notStarted = availableModules.filter(m => !startedModules.includes(m));
-  
-  if (notStarted.length > 0) {
-    recommendations.push({
-      type: 'exploration',
-      priority: 'low',
-      message: `Découvre de nouvelles matières : ${notStarted.slice(0, 2).join(', ')}`,
-      modules: notStarted.slice(0, 2)
-    });
-  }
-  
-  return recommendations;
-}
-
-// 📊 Route pour obtenir la progression simple (compatibilité)
 app.get("/get-progress", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
     res.status(200).json({
-      currentQuestion: user.quizProgress?.currentQuestion || 0,
-      score: user.quizProgress?.score || 0,
+      ...user.quizProgress,
       completedModules: user.completedModules || [],
       completedModulesWithScore: user.completedModulesWithScore || [],
     });
@@ -501,87 +240,52 @@ app.get("/get-progress", authenticate, async (req, res) => {
   }
 });
 
-// 🔄 Route pour réinitialiser un module
-app.post("/reset-module", authenticate, async (req, res) => {
+// ✅ SEULE ROUTE MODIFIÉE POUR CORRIGER LES DOUBLONS
+app.post("/complete-module", authenticate, async (req, res) => {
   try {
-    const { moduleId } = req.body;
-    if (!moduleId) {
-      return res.status(400).json({ error: "Module ID manquant." });
+    const { moduleId, score } = req.body;
+    if (!moduleId || score === undefined) {
+      return res.status(400).json({ error: "Module ID ou score manquant." });
     }
 
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
 
-    // Supprimer de moduleProgress
-    if (user.moduleProgress) {
-      user.moduleProgress.delete(moduleId);
+    // ✅ Assurer l'initialisation des tableaux
+    if (!user.completedModules) user.completedModules = [];
+    if (!user.completedModulesWithScore) user.completedModulesWithScore = [];
+
+    // ✅ Ajouter à completedModules SEULEMENT si pas déjà présent
+    if (!user.completedModules.includes(moduleId)) {
+      user.completedModules.push(moduleId);
+      console.log(`➕ Module ${moduleId} ajouté à completedModules`);
     }
 
-    // Supprimer de completedModules
-    if (user.completedModules) {
-      user.completedModules = user.completedModules.filter(m => m !== moduleId);
+    // ✅ Gérer completedModulesWithScore (mise à jour ou ajout)
+    const existingIndex = user.completedModulesWithScore.findIndex(m => m.moduleId === moduleId);
+    if (existingIndex !== -1) {
+      // Module déjà présent, on met à jour le score
+      user.completedModulesWithScore[existingIndex].score = score;
+      console.log(`🔄 Score mis à jour pour ${moduleId}: ${score}%`);
+    } else {
+      // Nouveau module, on l'ajoute
+      user.completedModulesWithScore.push({ moduleId, score });
+      console.log(`➕ Nouveau module ajouté: ${moduleId} avec score ${score}%`);
     }
 
-    // Supprimer de completedModulesWithScore
-    if (user.completedModulesWithScore) {
-      user.completedModulesWithScore = user.completedModulesWithScore.filter(m => m.moduleId !== moduleId);
-    }
-
+    // ✅ Réinitialiser la progression du quiz
+    user.quizProgress = { currentQuestion: 0, score };
     await user.save();
 
-    console.log(`🔄 Module ${moduleId} réinitialisé pour ${user.username}`);
-    res.status(200).json({ message: "Module réinitialisé avec succès." });
-
+    console.log(`✅ Module ${moduleId} terminé avec un score de ${score} pour ${user.username}`);
+    res.status(200).json({ message: "Module marqué comme complété." });
   } catch (error) {
-    console.error("❌ Erreur reset-module :", error);
+    console.error("❌ Erreur complete-module :", error);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// 📈 Route pour obtenir les statistiques du tableau de bord
-app.get("/dashboard-stats", authenticate, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ error: "Utilisateur non trouvé." });
-
-    const totalAvailableModules = Object.keys(AVAILABLE_MODULES).length;
-    const completedModules = user.completedModules || [];
-    const completedModulesWithScore = user.completedModulesWithScore || [];
-    
-    const globalProgress = Math.round((completedModules.length / totalAvailableModules) * 100);
-    const averageScore = completedModulesWithScore.length > 0 ? 
-      Math.round(completedModulesWithScore.reduce((sum, m) => sum + m.score, 0) / completedModulesWithScore.length) : 0;
-
-    // Calculer les modules en cours
-    let modulesInProgressCount = 0;
-    if (user.moduleProgress) {
-      for (const [moduleId, progress] of user.moduleProgress) {
-        if (progress.status === 'in_progress') {
-          modulesInProgressCount++;
-        }
-      }
-    }
-
-    res.status(200).json({
-      globalProgress,
-      totalModules: completedModules.length,
-      averageScore,
-      totalAvailableModules,
-      modulesInProgressCount,
-      recentActivity: {
-        lastModuleCompleted: completedModulesWithScore.length > 0 ? 
-          completedModulesWithScore[completedModulesWithScore.length - 1] : null,
-        totalSessions: Object.keys(user.moduleProgress || {}).length
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ Erreur dashboard-stats :", error);
-    res.status(500).json({ error: "Erreur serveur." });
-  }
-});
-
-// 🌐 SOCKET.IO (inchangé)
+// 🌐 SOCKET.IO - VERSION ORIGINALE
 io.on("connection", (socket) => {
   console.log("⚡ Connexion Socket.IO :", socket.id);
 
